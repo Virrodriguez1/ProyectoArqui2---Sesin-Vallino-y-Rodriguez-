@@ -28,12 +28,12 @@ services:
       DB_USER: spotly_user
       DB_PASSWORD: spotly_password
       DB_NAME: users_db
-      DB_DSN: "spotly_user:spotly_password@tcp(mysql:3306)/users_db?parseTime=true&charset=utf8mb4&loc=Local"
-      MYSQL_DSN: "spotly_user:spotly_password@tcp(mysql:3306)/users_db?parseTime=true&charset=utf8mb4&loc=Local"
-      PORT: "8080"
+      SERVER_PORT: "8080"
     depends_on:
       mysql:
         condition: service_healthy
+    ports:
+      - "8080:8080"
     networks:
       - spotly-network
     restart: unless-stopped
