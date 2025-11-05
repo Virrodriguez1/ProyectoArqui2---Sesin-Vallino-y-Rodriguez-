@@ -28,7 +28,11 @@ services:
       DB_USER: spotly_user
       DB_PASSWORD: spotly_password
       DB_NAME: users_db
-      SERVER_PORT: "8080"
+      DB_DSN: "spotly_user:spotly_password@tcp(mysql:3306)/users_db?parseTime=true&charset=utf8mb4&loc=Local"
+      MYSQL_DSN: "spotly_user:spotly_password@tcp(mysql:3306)/users_db?parseTime=true&charset=utf8mb4&loc=Local"
+      PORT: "8080"
+    ports:
+      - "8080:8080"
     depends_on:
       mysql:
         condition: service_healthy
@@ -42,9 +46,18 @@ services:
     build: ./properties-api
     container_name: spotly-properties-api
     environment:
-      DB_DSN: "root:root@tcp(mysql:3306)/spotly?parseTime=true&loc=Local"
+      DB_DSN: "root:rootpassword@tcp(mysql:3306)/spotly?parseTime=true&loc=Local"
+      MONGODB_URI: "mongodb://admin:adminpassword@mongodb:27017/spotly?authSource=admin"
+      RABBITMQ_URL: "amqp://spotly:spotly_password@rabbitmq:5672/"
+      PORT: "8081"
+    ports:
+      - "8081:8081"
     depends_on:
       mysql:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     networks:
       - spotly-network
@@ -54,13 +67,22 @@ services:
     build: ./search-api
     container_name: spotly-search-api
     environment:
-      DB_DSN: "root:root@tcp(mysql:3306)/spotly?parseTime=true&loc=Local"
+      DB_DSN: "root:rootpassword@tcp(mysql:3306)/spotly?parseTime=true&loc=Local"
       SOLR_URL: "http://solr:8983/solr/properties"
-      RABBITMQ_URL: "amqp://spotly:spotly@rabbitmq:5672/"
+      RABBITMQ_URL: "amqp://spotly:spotly_password@rabbitmq:5672/"
       MEMCACHED_ADDR: "memcached:11211"
+      PORT: "8082"
+    ports:
+      - "8082:8082"
     depends_on:
       mysql:
         condition: service_healthy
+      solr:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      memcached:
+        condition: service_started
     networks:
       - spotly-network
     restart: unless-stopped
@@ -70,12 +92,90 @@ services:
     container_name: spotly-frontend
     ports:
       - "3000:3000"
+    depends_on:
+      - users-api
+      - properties-api
+      - search-api
+    networks:
+      - spotly-network
+    restart: unless-stopped
+
+  mongodb:
+    image: mongo:7.0
+    container_name: spotly-mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: adminpassword
+      MONGO_INITDB_DATABASE: spotly
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - mongodb_data:/data/db
+    ports:
+      - "27017:27017"
+    networks:
+      - spotly-network
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: spotly-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: spotly
+      RABBITMQ_DEFAULT_PASS: spotly_password
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - spotly-network
+    restart: unless-stopped
+
+  solr:
+    image: solr:9.5
+    container_name: spotly-solr
+    environment:
+      SOLR_HEAP: "512m"
+    command:
+      - solr-foreground
+      - -f
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8983/solr/admin/info/system"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    volumes:
+      - solr_data:/var/solr
+    ports:
+      - "8983:8983"
+    networks:
+      - spotly-network
+    restart: unless-stopped
+
+  memcached:
+    image: memcached:1.6-alpine
+    container_name: spotly-memcached
+    ports:
+      - "11211:11211"
     networks:
       - spotly-network
     restart: unless-stopped
 
 volumes:
   mysql_data:
+  mongodb_data:
+  rabbitmq_data:
+  solr_data:
 
 networks:
   spotly-network:
